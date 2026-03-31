@@ -2,6 +2,9 @@
 
 A daily historical event display for TRMNL e-ink displays. Fetches today's most significant event from Wikipedia, generates a woodcut-style illustration via the Gemini API, and posts it to your TRMNL display.
 
+![Sample showing a woodcut style rendering of the 1638 Calabrian Earthquakes](samples/woodcut/1638-calabrian-earthquakes.png)
+![Sample showing a pencil sketch style rendering of Hieroglyphics](samples/sketch/1900-hieroglyphics.png)
+
 ## ⚙️ Setup
 
 ### ✅ Prerequisites
@@ -17,15 +20,17 @@ A daily historical event display for TRMNL e-ink displays. Fetches today's most 
 git clone https://github.com/yesterdayshero/on-this-day-e-ink.git
 cd on-this-day-e-ink
 cp .env.example .env
-# Edit .env and add your GEMINI_API_KEY and TRMNL_WEBHOOK_URL
+# Edit .env and add your GEMINI_API_KEY and TRMNL_WEBHOOK_URL (See Environment variables section below for optional configurations)
 uv sync
 ```
 
-### 🚀 Run manually
+### 🚀 Run
 
 ```bash
 uv run python -m on_this_day
 ```
+
+Executes the full pipeline: fetches events, scores them, generates the image, and pushes it to your TRMNL display.
 
 ### 🧪 Test without posting to TRMNL
 
@@ -69,7 +74,7 @@ crontab -e
 1. Open **Task Scheduler** → **Create Basic Task**
 2. Trigger: Daily at 5:30 AM
 3. Action: Start a program
-   - Program: `uv`
+   - Program: `C:\path\to\your\.cargo\bin\uv.exe` (Ensure you use the absolute path to uv.exe, otherwise the task will fail silently. You can find this path by running `where uv` in Command Prompt.)
    - Arguments: `run python -m on_this_day`
    - Start in: `<path-to-project-folder>`
 4. Confirm the task runs by triggering it manually.
@@ -103,7 +108,7 @@ The selector uses Gemini Flash to categorise events and assigns points per categ
 | `GEMINI_SCORING_API_KEY` | No | Free-tier key — used for event categorisation to save cost |
 | `DISCORD_WEBHOOK_URL` | No | Daily digest + failure alerts |
 | `LOG_LEVEL` | No | Default: `INFO` |
-| `TIMEZONE` | No | Default: `UTC` (Use [tz database format](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)) |
+| `TIMEZONE` | No | Default: `UTC` (Make sure to set this to your local timezone using [tz database format](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) so your events trigger on the correct "today"!) |
 
 > [!NOTE] 
 > **API Costs 💸:** Gemini text models (used for scoring) have a generous free tier. However, the Gemini image generation model is a paid API. Generating one daily image will incur a very small monthly cost (typically a few cents per month). To optimise costs, you can provide a secondary free-tier `GEMINI_SCORING_API_KEY` to handle the text-heavy categorisation, reserving your paid `GEMINI_API_KEY` exclusively for the single final image generation.
@@ -119,15 +124,19 @@ uv run pytest
 ### 📁 Project structure
 
 ```
-src/on_this_day/
-├── __main__.py   # entry point — orchestrates the full pipeline
-├── config.py     # loads .env, validates required vars
-├── fetcher.py    # Wikipedia REST API
-├── selector.py   # LLM-powered event scoring (Gemini 2.5 Flash); keyword fallback
-├── generator.py  # Gemini image generation (3.1 Flash Image)
-├── composer.py   # crop → posterise → text overlay
-├── poster.py     # TRMNL webhook upload
-└── discord.py    # Discord webhook notifications
+├── src/on_this_day/
+│   ├── __main__.py   # entry point — orchestrates the full pipeline
+│   ├── config.py     # loads .env, validates required vars
+│   ├── fetcher.py    # Wikipedia REST API
+│   ├── selector.py   # LLM-powered event scoring (Gemini 2.5 Flash); keyword fallback
+│   ├── generator.py  # Gemini image generation (3.1 Flash Image)
+│   ├── composer.py   # crop → posterise → text overlay
+│   ├── poster.py     # TRMNL webhook upload
+│   └── discord.py    # Discord webhook notifications
+├── run_manual_event.py          # Utility: Push a specific event
+├── extract_categorised_events.py # Utility: Test event selection & scoring
+├── pyproject.toml               # uv project definitions
+└── .env.example
 ```
 
 ## 📜 Logs
@@ -137,3 +146,18 @@ Rotating daily logs in `logs/app.log`. 30 days retained.
 ## 🖼️ Output
 
 The last generated image is saved to `output/latest.png` for inspection.
+
+## 🚑 Troubleshooting
+
+- **Check the logs:** If something goes wrong, your first step should always be checking `logs/app.log`.
+- **TRMNL Webhook Errors:**
+  - `422 Unprocessable Entity`: Your image might be too large (over 5 MB), the wrong format, or corrupted. Try dropping it to a simple PNG.
+  - `429 Too Many Requests`: You've hit the TRMNL rate limit (12 uploads per hour). Wait a bit before sending more.
+- **Image pushes but display doesn't update:**
+  - Check that your POST request returned a `200` response. You can also try the "Force Refresh" button in the plugin settings.
+  - **Pro-tip:** In the TRMNL webhook plugin settings on the dashboard, try enabling **"Skip Device Validation"** if your image isn't rendering.
+  - **Pro-tip:** For the best visual result, choose **"Contain"** for the image scaling option in the TRMNL plugin settings so the full image is shown.
+
+## 📄 Licence
+
+This project is licensed under the [Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0)](LICENSE).
