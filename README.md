@@ -2,8 +2,12 @@
 
 A daily historical event display for TRMNL e-ink displays. Fetches today's most significant event from Wikipedia, generates a woodcut-style illustration via the Gemini API, and posts it to your TRMNL display.
 
-![Sample showing a woodcut style rendering of the 1638 Calabrian Earthquakes](samples/woodcut/1638-calabrian-earthquakes.png)
-![Sample showing a pencil sketch style rendering of Hieroglyphics](samples/sketch/1900-hieroglyphics.png)
+<table>
+  <tr>
+    <td><img src="samples/woodcut/1638-calabrian-earthquakes.png" alt="Woodcut Style: 1638 Calabrian Earthquakes" width="400"></td>
+    <td><img src="samples/sketch/1900-hieroglyphics.png" alt="Pencil Sketch Style: 1900 Hieroglyphics" width="400"></td>
+  </tr>
+</table>
 
 ## ⚙️ Setup
 
