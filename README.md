@@ -1,6 +1,6 @@
 # 📅 On This Day art for TRMNL e-ink display
 
-A daily historical event display for TRMNL e-ink displays. Fetches today's most significant event from Wikipedia, generates an illustration via the Gemini API, and posts it to your TRMNL display.
+A daily historical event display for TRMNL e-ink displays. Fetches a significant event from [Wikipedia](https://en.wikipedia.org/wiki/Wikipedia:Selected_anniversaries) on this date in history, generates an illustration via the Gemini API, and posts it to your TRMNL display.
 
 <table>
   <tr>
