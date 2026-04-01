@@ -89,7 +89,7 @@ crontab -e
 
 ### How it works
 
-Wikipedia publishes a list of historical events for every date. The selector filters and scores these to find the most interesting one for display. You don't need to change anything for this to work out of the box.
+[Wikipedia](https://en.wikipedia.org/wiki/Wikipedia:Selected_anniversaries) publishes a list of historical events for every date. The selector filters and scores these to find the most interesting one for display. You don't need to change anything for this to work out of the box.
 
 **The pipeline:**
 1. **Fetch**: retrieves today's events from the Wikipedia "On this day" API
