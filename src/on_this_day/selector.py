@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 
 import requests
 
@@ -62,8 +63,12 @@ CATEGORY_NAMES = list(CATEGORY_POINTS.keys())
 
 _GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash:generateContent?key={api_key}"
+    "{model}:generateContent?key={api_key}"
 )
+_PRIMARY_MODEL = "gemini-2.5-flash"
+_FALLBACK_MODEL = "gemini-2.5-flash-lite"
+_MAX_RETRIES = 3
+_BASE_DELAY_S = 5
 
 _DEDUP_PROMPT = """\
 You are a historian. The following events all occurred on the same date. Some entries describe \
@@ -127,35 +132,54 @@ def _categorise_with_gemini(events: list[dict], api_key: str) -> list[list[str]]
         # Note: thinking mode requires temperature >= 1.0 and adds latency/cost.
     }
 
-    response = requests.post(
-        _GEMINI_API_URL.format(api_key=api_key),
-        json=payload,
-        headers={"Content-Type": "application/json"},
-        timeout=120,
-    )
-    response.raise_for_status()
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES):
+        if attempt > 0:
+            delay = _BASE_DELAY_S * (2 ** (attempt - 1))
+            logger.warning(
+                "Categorisation attempt %d/%d failed — retrying in %ds",
+                attempt, _MAX_RETRIES, delay,
+            )
+            time.sleep(delay)
+        model = _PRIMARY_MODEL if attempt < 2 else _FALLBACK_MODEL
+        if attempt == 2:
+            logger.warning("Falling back to %s for categorisation", _FALLBACK_MODEL)
+        try:
+            response = requests.post(
+                _GEMINI_API_URL.format(model=model, api_key=api_key),
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=120,
+            )
+            response.raise_for_status()
 
-    data = response.json()
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
+            data = response.json()
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
 
-    # Extract JSON array from response (may be wrapped in markdown code block)
-    match = re.search(r"\[[\s\S]*\]", text)
-    if not match:
-        raise ValueError(f"Could not parse categories from Gemini response: {text[:200]}")
+            # Extract JSON array from response (may be wrapped in markdown code block)
+            match = re.search(r"\[[\s\S]*\]", text)
+            if not match:
+                raise ValueError(f"Could not parse categories from Gemini response: {text[:200]}")
 
-    result = json.loads(match.group())
+            result = json.loads(match.group())
 
-    # Handle minor count mismatches
-    if len(result) < len(events):
-        logger.warning("Gemini returned %d category sets for %d events — padding with empty", len(result), len(events))
-        result.extend([[]] * (len(events) - len(result)))
-    elif len(result) > len(events):
-        logger.warning("Gemini returned %d category sets for %d events — truncating", len(result), len(events))
-        result = result[:len(events)]
+            # Handle minor count mismatches
+            if len(result) < len(events):
+                logger.warning("Gemini returned %d category sets for %d events — padding with empty", len(result), len(events))
+                result.extend([[]] * (len(events) - len(result)))
+            elif len(result) > len(events):
+                logger.warning("Gemini returned %d category sets for %d events — truncating", len(result), len(events))
+                result = result[:len(events)]
 
-    # Filter out any invalid category names
-    valid = set(CATEGORY_NAMES)
-    return [[c for c in cats if c in valid] for cats in result]
+            # Filter out any invalid category names
+            valid = set(CATEGORY_NAMES)
+            return [[c for c in cats if c in valid] for cats in result]
+
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("Categorisation attempt %d/%d failed: %s", attempt + 1, _MAX_RETRIES, exc)
+
+    raise RuntimeError(f"Categorisation failed after {_MAX_RETRIES} attempts") from last_exc
 
 
 def _calculate_score(categories: list[str], text: str) -> int:
@@ -223,45 +247,64 @@ def _deduplicate_semantic(events: list[dict], api_key: str) -> list[dict]:
         "generationConfig": {"temperature": 0.0},
     }
 
-    response = requests.post(
-        _GEMINI_API_URL.format(api_key=api_key),
-        json=payload,
-        headers={"Content-Type": "application/json"},
-        timeout=60,
-    )
-    response.raise_for_status()
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES):
+        if attempt > 0:
+            delay = _BASE_DELAY_S * (2 ** (attempt - 1))
+            logger.warning(
+                "Semantic dedup attempt %d/%d failed — retrying in %ds",
+                attempt, _MAX_RETRIES, delay,
+            )
+            time.sleep(delay)
+        model = _PRIMARY_MODEL if attempt < 2 else _FALLBACK_MODEL
+        if attempt == 2:
+            logger.warning("Falling back to %s for semantic dedup", _FALLBACK_MODEL)
+        try:
+            response = requests.post(
+                _GEMINI_API_URL.format(model=model, api_key=api_key),
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=60,
+            )
+            response.raise_for_status()
 
-    data = response.json()
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
+            data = response.json()
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
 
-    match = re.search(r"\[[\s\S]*?\]", text)
-    if not match:
-        raise ValueError(f"Could not parse dedup groups from Gemini response: {text[:200]}")
+            match = re.search(r"\[[\s\S]*?\]", text)
+            if not match:
+                raise ValueError(f"Could not parse dedup groups from Gemini response: {text[:200]}")
 
-    groups = json.loads(match.group())
+            groups = json.loads(match.group())
 
-    if len(groups) != len(events):
-        logger.warning(
-            "Gemini returned %d group IDs for %d events — skipping semantic dedup",
-            len(groups), len(events),
-        )
-        return events
+            if len(groups) != len(events):
+                logger.warning(
+                    "Gemini returned %d group IDs for %d events — skipping semantic dedup",
+                    len(groups), len(events),
+                )
+                return events
 
-    # Keep the longest description from each group (more detail = better)
-    best_per_group: dict[int, dict] = {}
-    for group_id, event in zip(groups, events):
-        if group_id not in best_per_group:
-            best_per_group[group_id] = event
-        else:
-            existing = best_per_group[group_id]
-            if len(event.get("text", "")) > len(existing.get("text", "")):
-                best_per_group[group_id] = event
+            # Keep the longest description from each group (more detail = better)
+            best_per_group: dict[int, dict] = {}
+            for group_id, event in zip(groups, events):
+                if group_id not in best_per_group:
+                    best_per_group[group_id] = event
+                else:
+                    existing = best_per_group[group_id]
+                    if len(event.get("text", "")) > len(existing.get("text", "")):
+                        best_per_group[group_id] = event
 
-    kept = list(best_per_group.values())
-    removed = len(events) - len(kept)
-    if removed:
-        logger.info("Semantic dedup removed %d duplicate(s), %d events remain", removed, len(kept))
-    return kept
+            kept = list(best_per_group.values())
+            removed = len(events) - len(kept)
+            if removed:
+                logger.info("Semantic dedup removed %d duplicate(s), %d events remain", removed, len(kept))
+            return kept
+
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("Semantic dedup attempt %d/%d failed: %s", attempt + 1, _MAX_RETRIES, exc)
+
+    raise RuntimeError(f"Semantic dedup failed after {_MAX_RETRIES} attempts") from last_exc
 
 
 def _deduplicate_topics(ranked: list[dict]) -> list[dict]:
